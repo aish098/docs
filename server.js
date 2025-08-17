@@ -38,10 +38,154 @@ const studentSchema = new mongoose.Schema({
 // An instance of a model is a document that can be saved to the database.
 const Student = mongoose.model('Student', studentSchema);
 
-// 6. Define API Routes (GET and POST methods)
+// ------------------- AUTHENTICATION CODE START -------------------
 
-// GET: Retrieve all students from the database
-app.get('/students', async (req, res) => {
+// Import additional modules for authentication
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
+// User Schema
+const userSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: [true, 'Username is required'],
+    unique: true, // Ensures every username is unique
+    trim: true
+  },
+  password: {
+    type: String,
+    required: [true, 'Password is required']
+  }
+});
+
+// Middleware to hash password before saving a new user
+// This function runs automatically before a 'save' operation on a User document
+userSchema.pre('save', async function(next) {
+  // Only hash the password if it has been modified (or is new)
+  if (!this.isModified('password')) {
+    return next();
+  }
+
+  try {
+    // Generate a "salt" to add to the hash, making it more secure
+    const salt = await bcrypt.genSalt(10);
+    // Hash the password with the salt
+    this.password = await bcrypt.hash(this.password, salt);
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// User Model
+const User = mongoose.model('User', userSchema);
+
+// ------------------- AUTHENTICATION CODE END -------------------
+
+// 6. Define API Routes
+
+// --- AUTHENTICATION ROUTES ---
+
+// POST: Register a new user
+app.post('/api/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    // Check if user already exists
+    let user = await User.findOne({ username });
+    if (user) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    // Create a new user (password will be hashed by the pre-save hook)
+    user = new User({ username, password });
+    await user.save();
+
+    res.status(201).json({ message: 'User registered successfully' });
+
+  } catch (error) {
+    res.status(500).json({ message: 'Error registering user', error: error.message });
+  }
+});
+
+// POST: Login a user
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    // Check if user exists
+    const user = await User.findOne({ username });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    // Check if password is correct
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    // Create and sign a JSON Web Token (JWT)
+    const payload = {
+      user: {
+        id: user.id
+      }
+    };
+
+    // IMPORTANT: In a real app, use a long, complex secret and keep it in an environment variable
+    const JWT_SECRET = 'your_jwt_secret_key';
+
+    jwt.sign(
+      payload,
+      JWT_SECRET,
+      { expiresIn: 3600 }, // Token expires in 1 hour
+      (err, token) => {
+        if (err) throw err;
+        res.json({ token });
+      }
+    );
+
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// --- MIDDLEWARE ---
+
+// Middleware to verify JWT and protect routes
+const authMiddleware = (req, res, next) => {
+  // Get token from header
+  const authHeader = req.header('Authorization');
+
+  // Check if token exists
+  if (!authHeader) {
+    return res.status(401).json({ message: 'No token, authorization denied' });
+  }
+
+  // Check if the token is in the correct 'Bearer <token>' format
+  const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7, authHeader.length) : null;
+  if (!token) {
+    return res.status(401).json({ message: 'Token format is incorrect, authorization denied' });
+  }
+
+  try {
+    // Verify token
+    const decoded = jwt.verify(token, 'your_jwt_secret_key'); // Use the same secret key
+
+    // Add user from payload to the request object
+    req.user = decoded.user;
+    next();
+  } catch (err) {
+    res.status(401).json({ message: 'Token is not valid' });
+  }
+};
+
+
+// --- STUDENT ROUTES (NOW PROTECTED) ---
+
+// GET: Retrieve all students from the database (Protected)
+// The `authMiddleware` will run before the route handler
+app.get('/students', authMiddleware, async (req, res) => {
   try {
     const students = await Student.find();
     res.status(200).json(students);
@@ -50,8 +194,9 @@ app.get('/students', async (req, res) => {
   }
 });
 
-// POST: Create a new student
-app.post('/students', async (req, res) => {
+// POST: Create a new student (Protected)
+// The `authMiddleware` will run before the route handler
+app.post('/students', authMiddleware, async (req, res) => {
   try {
     const newStudent = new Student(req.body);
     const savedStudent = await newStudent.save(); // This will trigger Mongoose validation
