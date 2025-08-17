@@ -1,58 +1,83 @@
 const express = require('express');
-const mongoose = require('mongoose');
-const dotenv = require('dotenv');
-const session = require('express-session');
-const passport = require('passport');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
-// --- Initial Setup ---
-
-// Load environment variables from .env file
-dotenv.config();
-
-// Initialize Express app
+// --- Basic Server Setup ---
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// --- Database Connection ---
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('MongoDB Connected...'))
-.catch(err => console.error('MongoDB Connection Error:', err));
+// =================================================================
+//                      SECURITY MIDDLEWARE
+// =================================================================
 
-// --- Middleware ---
+// 1. helmet: Applies a wide range of security-related HTTP headers.
+// It helps protect against common vulnerabilities like XSS, clickjacking, etc.
+app.use(helmet());
 
-// Body parser middleware to handle JSON data
-app.use(express.json());
+// 2. cors: Handles Cross-Origin Resource Sharing.
+// This is crucial for controlling which external domains can make requests to your API.
+const corsOptions = {
+  // Replace 'http://your-frontend-domain.com' with the actual domain of your front-end app
+  origin: ['http://localhost:3000', 'http://your-frontend-domain.com'],
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+app.use(cors(corsOptions));
 
-// Express Session Middleware
-// This is required for Passport's session-based authentication (used for OAuth)
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false, // Don't create a session until something is stored
-  cookie: {
-    // secure: true, // Uncomment this in production when using HTTPS
-    maxAge: 1000 * 60 * 60 * 24 // 1 day
+
+// 3. express-rate-limit: Protects against brute-force and DoS attacks.
+// This limits the number of requests an IP address can make in a certain timeframe.
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+// Apply the rate limiting middleware to all requests
+app.use(limiter);
+
+
+// 4. API Key Authentication: A simple custom middleware for protecting specific routes.
+const apiKeyAuth = (req, res, next) => {
+  const apiKey = req.header('X-API-KEY');
+  const validApiKey = 'your-secret-api-key'; // In a real app, this should be in a .env file
+
+  if (apiKey && apiKey === validApiKey) {
+    // If the key is valid, proceed to the next middleware/route handler
+    next();
+  } else {
+    // If the key is missing or invalid, send a 401 Unauthorized response
+    res.status(401).json({ error: 'Unauthorized. Please provide a valid API key.' });
   }
-}));
+};
 
-// Passport Middleware
-// This initializes Passport and connects it to our session handling
-require('./config/passport-setup'); // This executes the passport configuration file
-app.use(passport.initialize());
-app.use(passport.session());
 
-// --- Routes ---
+// =================================================================
+//                            API ROUTES
+// =================================================================
 
-// Mount the authentication routes
-app.use('/auth', require('./routes/auth'));
-
-// Simple welcome route
-app.get('/', (req, res) => {
-  res.json({ message: 'Welcome to the OAuth and Validation API. Use /auth/google or /auth/facebook to start.' });
+// --- Public Route ---
+// This endpoint is open to everyone. It is still protected by helmet, cors, and rate-limiting.
+app.get('/api/public', (req, res) => {
+  res.json({
+    message: 'This is a public endpoint. Anyone can see this!'
+  });
 });
 
-// --- Server Startup ---
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+// --- Private Route ---
+// This endpoint is protected by our custom API key middleware.
+app.get('/api/private', apiKeyAuth, (req, res) => {
+  res.json({
+    message: 'This is a private endpoint. You should only see this if you have a valid API key.',
+    secretData: 'Here is some top-secret information.'
+  });
+});
+
+
+// =================================================================
+//                         SERVER STARTUP
+// =================================================================
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});

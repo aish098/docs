@@ -1,20 +1,15 @@
 {
-  "name": "oauth-validation-example",
+  "name": "api-security-example",
   "version": "1.0.0",
-  "description": "An example app for OAuth and server-side validation.",
+  "description": "A simple example of API security measures in Node.js.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.17.1",
-    "mongoose": "^6.0.7",
-    "express-validator": "^6.12.2",
-    "passport": "^0.5.0",
-    "passport-google-oauth20": "^2.0.0",
-    "passport-facebook": "^3.0.0",
-    "jsonwebtoken": "^8.5.1",
-    "dotenv": "^10.0.0",
-    "express-session": "^1.17.2"
+    "helmet": "^4.6.0",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^5.5.1"
   }
 }
