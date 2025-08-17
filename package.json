@@ -1,15 +1,12 @@
 {
-  "name": "api-security-example",
+  "name": "mongodb-operations-example",
   "version": "1.0.0",
-  "description": "A simple example of API security measures in Node.js.",
-  "main": "server.js",
+  "description": "A script to demonstrate basic MongoDB operations with Mongoose.",
+  "main": "app.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node app.js"
   },
   "dependencies": {
-    "express": "^4.17.1",
-    "helmet": "^4.6.0",
-    "cors": "^2.8.5",
-    "express-rate-limit": "^5.5.1"
+    "mongoose": "^6.0.7"
   }
 }
