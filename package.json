@@ -1,7 +1,7 @@
 {
-  "name": "mongoose-example",
+  "name": "mongoose-example-simplified",
   "version": "1.0.0",
-  "description": "A simple Mongoose example for exams.",
+  "description": "A simplified Mongoose example for exams with auth.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

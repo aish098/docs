@@ -38,107 +38,84 @@ const studentSchema = new mongoose.Schema({
 // An instance of a model is a document that can be saved to the database.
 const Student = mongoose.model('Student', studentSchema);
 
-// ------------------- AUTHENTICATION CODE START -------------------
 
-// Import additional modules for authentication
+// =================================================================
+//                      AUTHENTICATION (SIMPLE)
+// =================================================================
+
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// User Schema
+// --- User Schema & Model ---
 const userSchema = new mongoose.Schema({
-  username: {
-    type: String,
-    required: [true, 'Username is required'],
-    unique: true, // Ensures every username is unique
-    trim: true
-  },
-  password: {
-    type: String,
-    required: [true, 'Password is required']
-  }
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
 });
 
-// Middleware to hash password before saving a new user
-// This function runs automatically before a 'save' operation on a User document
-userSchema.pre('save', async function(next) {
-  // Only hash the password if it has been modified (or is new)
-  if (!this.isModified('password')) {
-    return next();
-  }
-
-  try {
-    // Generate a "salt" to add to the hash, making it more secure
-    const salt = await bcrypt.genSalt(10);
-    // Hash the password with the salt
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
-});
-
-// User Model
 const User = mongoose.model('User', userSchema);
 
-// ------------------- AUTHENTICATION CODE END -------------------
-
-// 6. Define API Routes
-
-// --- AUTHENTICATION ROUTES ---
-
-// POST: Register a new user
+// --- Auth Routes (Simple) ---
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Check if user already exists
-    let user = await User.findOne({ username });
-    if (user) {
-      return res.status(400).json({ message: 'User already exists' });
+    // 1. Check if user already exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Username already taken.' });
     }
 
-    // Create a new user (password will be hashed by the pre-save hook)
-    user = new User({ username, password });
-    await user.save();
+    // 2. Hash the password directly
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    res.status(201).json({ message: 'User registered successfully' });
+    // 3. Create a new user with the hashed password
+    const newUser = new User({
+      username,
+      password: hashedPassword
+    });
+
+    // 4. Save the user to the database
+    await newUser.save();
+
+    res.status(201).json({ message: 'User registered successfully!' });
 
   } catch (error) {
-    res.status(500).json({ message: 'Error registering user', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 
-// POST: Login a user
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    // Check if user exists
+    // 1. Find the user by username
     const user = await User.findOne({ username });
     if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      // Use a generic error message for security
+      return res.status(400).json({ message: 'Invalid credentials.' });
     }
 
-    // Check if password is correct
+    // 2. Compare the provided password with the stored hashed password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(400).json({ message: 'Invalid credentials.' });
     }
 
-    // Create and sign a JSON Web Token (JWT)
+    // 3. If credentials are correct, create a JWT
     const payload = {
       user: {
-        id: user.id
+        id: user.id,
+        username: user.username
       }
     };
 
-    // IMPORTANT: In a real app, use a long, complex secret and keep it in an environment variable
-    const JWT_SECRET = 'your_jwt_secret_key';
+    const JWT_SECRET = 'your-super-secret-key-that-is-long-and-random'; // Should be in .env file
 
     jwt.sign(
       payload,
       JWT_SECRET,
-      { expiresIn: 3600 }, // Token expires in 1 hour
+      { expiresIn: '1h' }, // Token expires in 1 hour
       (err, token) => {
         if (err) throw err;
         res.json({ token });
@@ -150,41 +127,35 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// --- MIDDLEWARE ---
-
-// Middleware to verify JWT and protect routes
+// --- Auth Middleware (Simple) ---
 const authMiddleware = (req, res, next) => {
-  // Get token from header
+  // 1. Get the token from the Authorization header
   const authHeader = req.header('Authorization');
 
-  // Check if token exists
-  if (!authHeader) {
-    return res.status(401).json({ message: 'No token, authorization denied' });
-  }
-
-  // Check if the token is in the correct 'Bearer <token>' format
-  const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7, authHeader.length) : null;
-  if (!token) {
-    return res.status(401).json({ message: 'Token format is incorrect, authorization denied' });
+  // 2. Check if the header exists and is correctly formatted
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Access denied. No token provided.' });
   }
 
   try {
-    // Verify token
-    const decoded = jwt.verify(token, 'your_jwt_secret_key'); // Use the same secret key
+    // 3. Extract and verify the token
+    const token = authHeader.split(' ')[1]; // Get token from "Bearer <token>"
+    const JWT_SECRET = 'your-super-secret-key-that-is-long-and-random'; // Use the same secret
+    const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Add user from payload to the request object
+    // 4. Attach user info to the request object
     req.user = decoded.user;
-    next();
-  } catch (err) {
-    res.status(401).json({ message: 'Token is not valid' });
+    next(); // Proceed to the next middleware or route handler
+  } catch (error) {
+    res.status(401).json({ message: 'Invalid token.' });
   }
 };
 
+// =================================================================
 
-// --- STUDENT ROUTES (NOW PROTECTED) ---
+// 6. Define API Routes (GET and POST methods)
 
-// GET: Retrieve all students from the database (Protected)
-// The `authMiddleware` will run before the route handler
+// GET: Retrieve all students from the database (PROTECTED)
 app.get('/students', authMiddleware, async (req, res) => {
   try {
     const students = await Student.find();
@@ -194,8 +165,7 @@ app.get('/students', authMiddleware, async (req, res) => {
   }
 });
 
-// POST: Create a new student (Protected)
-// The `authMiddleware` will run before the route handler
+// POST: Create a new student (PROTECTED)
 app.post('/students', authMiddleware, async (req, res) => {
   try {
     const newStudent = new Student(req.body);
